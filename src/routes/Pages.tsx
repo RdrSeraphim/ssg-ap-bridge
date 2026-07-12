@@ -298,14 +298,41 @@ export const Top = (props: {
                   </p>
                   <footer
                     style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
                       padding: "0.5rem 0 0 0",
                       marginTop: "0.5rem",
                       fontSize: "0.8rem",
                       borderTop: "1px solid var(--muted-border-color)",
                     }}
                   >
-                    ID:{" "}
-                    <code style={{ fontSize: "0.75rem" }}>{message.id}</code>
+                    <div>
+                      ID:{" "}
+                      <code style={{ fontSize: "0.75rem" }}>{message.id}</code>
+                    </div>
+                    <form
+                      action="/ap/delete"
+                      method="post"
+                      style={{ margin: 0 }}
+                      onsubmit="return confirm('Are you sure you want to delete this post from all followers? This will send a federated Delete activity.')"
+                    >
+                      <input type="hidden" name="id" value={message.id} />
+                      <button
+                        type="submit"
+                        class="secondary outline"
+                        style={{
+                          padding: "2px 8px",
+                          fontSize: "0.75rem",
+                          width: "auto",
+                          margin: 0,
+                          borderColor: "#d9383a",
+                          color: "#d9383a",
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </form>
                   </footer>
                 </article>
               ))

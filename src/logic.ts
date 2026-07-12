@@ -92,6 +92,27 @@ export async function acceptFollow(
   await postInbox(strInbox, res, headers);
 }
 
+function markdownToHtml(md: string): string {
+  let html = md.trim()
+  html = html
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+
+  // Convert markdown links [text](url) to HTML links
+  html = html.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank" rel="nofollow noopener noreferrer">$1</a>')
+  // Convert double asterisks to bold (<strong>)
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+  // Convert single asterisks to italic (<em>)
+  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>')
+  // Convert newlines to breaks (<br />)
+  html = html.split('\n').join('<br />')
+  
+  return `<p>${html}</p>`
+}
+
 export async function createNote(
   strId: string,
   strName: string,
@@ -113,7 +134,7 @@ export async function createNote(
       id: `https://${strHost}/u/${strName}/s/${strId}`,
       type: "Note",
       attributedTo: `https://${strHost}/u/${strName}`,
-      content: y,
+      content: markdownToHtml(y),
       url: `https://${strHost}/u/${strName}/s/${strId}`,
       published: strTime,
       to: ["https://www.w3.org/ns/activitystreams#Public"],

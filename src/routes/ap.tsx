@@ -4,7 +4,7 @@ import { Top } from './Pages'
 import { Env, Follower, Following, Message } from '../types'
 import { validator } from 'hono/validator'
 import { importprivateKey } from '../utils'
-import { createNote, getInbox, postInbox, signHeaders } from '../logic'
+import { createNote, deleteNote, getInbox, postInbox, signHeaders } from '../logic'
 
 const app = new Hono<Env>({ strict: false })
 
@@ -311,6 +311,42 @@ app.post('/unfollow', async (c) => {
   } catch (err: any) {
     console.error(err)
     return c.text(`Error unfollowing account: ${err.message}`, 500)
+  }
+})
+
+app.post('/delete', async (c) => {
+  const body = await c.req.parseBody()
+  const messageId = body['id'] as string
+  if (!messageId) return c.text('Invalid message ID', 400)
+
+  const strHost = new URL(c.req.url).hostname
+  const strName = c.env.preferredUsername
+  const PRIVATE_KEY = await importprivateKey(c.env.PRIVATE_KEY)
+
+  try {
+    const noteId = `https://${strHost}/u/${strName}/s/${messageId}`
+
+    // Get all followers to broadcast the deletion
+    const { results: followers } = await c.env.DB.prepare(`SELECT * FROM follower;`).all<Follower>()
+    const followerList = followers || []
+
+    await Promise.all(
+      followerList.map(async (follower) => {
+        try {
+          await deleteNote(strName, strHost, follower.inbox, noteId, PRIVATE_KEY)
+        } catch (err) {
+          console.error(`Failed to send Delete to follower inbox ${follower.inbox}:`, err)
+        }
+      })
+    )
+
+    // Delete from DB
+    await c.env.DB.prepare(`DELETE FROM message WHERE id = ?;`).bind(messageId).run()
+
+    return c.redirect('/ap')
+  } catch (err: any) {
+    console.error(err)
+    return c.text(`Error deleting note: ${err.message}`, 500)
   }
 })
 
