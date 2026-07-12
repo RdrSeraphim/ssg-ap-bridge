@@ -77,11 +77,12 @@ To intercept ActivityPub calls under your own domain (e.g., `srp.life`), you nee
 1. Go to your domain settings in Cloudflare.
 2. Navigate to **Workers Routes** (under DNS / Websites).
 3. Bind your domain paths to the `ssg-ap-bridge` worker:
-   - `yourdomain.com/.well-known/webfinger*` -> `ssg-ap-bridge`
-   - `yourdomain.com/u/*` -> `ssg-ap-bridge`
-   - `yourdomain.com/ap/*` -> `ssg-ap-bridge` *(for accessing the dashboard)*
-   - `yourdomain.com/ap*` -> `ssg-ap-bridge` *(optional: only use if you don't have page/post slugs that might conflict)*
-   -> `yourdomain.com/ap/` -> ssg-ap-bridge` *(optional: for use if you **do** have page/post slugs that might conflict, saves some trouble)*
+    - `yourdomain.com/.well-known/webfinger*` -> `ssg-ap-bridge`
+    - `yourdomain.com/u/*` -> `ssg-ap-bridge`
+    - `yourdomain.com/ap/*` -> `ssg-ap-bridge` *(for accessing the dashboard)*
+    - `yourdomain.com/api/*` -> `ssg-ap-bridge` *(for sync feed and outbound programmatic API)*
+    - `yourdomain.com/ap*` -> `ssg-ap-bridge` *(optional: only use if you don't have page/post slugs that might conflict)*
+    - `yourdomain.com/ap/` -> `ssg-ap-bridge` *(optional: for use if you **do** have page/post slugs that might conflict, saves some trouble)*
 
 All other requests to `yourdomain.com` (like standard static articles, images, and HTML) will bypass the worker and fall back to your main site (e.g., on Cloudflare Pages).
 
