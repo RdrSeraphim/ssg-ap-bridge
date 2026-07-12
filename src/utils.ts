@@ -70,3 +70,37 @@ export async function exportPublicKey(key: CryptoKey) {
     return pem
   }
 }
+
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+  ndash: '–',
+  mdash: '—',
+  middot: '·',
+  ldquo: '“',
+  rdquo: '”',
+  lsquo: '‘',
+  rsquo: '’',
+  copy: '©',
+  reg: '®',
+  trade: '™',
+  hellip: '…',
+}
+
+export function decodeEntities(str: string): string {
+  if (!str) return ''
+  return str.replace(/&(#(?:\d+|x[0-9a-f]+)|[a-z0-9]+);/gi, (match, entity) => {
+    if (entity.startsWith('#')) {
+      const isHex = entity[1].toLowerCase() === 'x'
+      const code = isHex ? parseInt(entity.slice(2), 16) : parseInt(entity.slice(1), 10)
+      return !isNaN(code) ? String.fromCharCode(code) : match
+    }
+    const decoded = NAMED_ENTITIES[entity.toLowerCase()]
+    return decoded !== undefined ? decoded : match
+  })
+}
+

@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { basicAuth } from 'hono/basic-auth'
 import { Env, Follower, Following, Message } from '../types'
-import { importprivateKey } from '../utils'
+import { importprivateKey, decodeEntities } from '../utils'
 import { createNote, getInbox, postInbox, signHeaders } from '../logic'
 
 const app = new Hono<Env>()
@@ -19,15 +19,11 @@ app.use('*', async (c, next) => {
  * Sync posts from the Hugo RSS feed and broadcast any new posts to followers
  */
 function stripHtml(html: string) {
-  return html
+  const stripped = html
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/p>/gi, '\n')
     .replace(/<[^>]*>/g, '')
-    .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .trim()
+  return decodeEntities(stripped).trim()
 }
 
 function truncateText(text: string, maxLength: number) {
@@ -50,9 +46,12 @@ export async function syncFeed(feedUrl: string, db: D1Database, env: Env['Bindin
   const matches = xml.matchAll(/<item>([\s\S]*?)<\/item>/g)
   for (const match of matches) {
     const itemXml = match[1]
-    const title = itemXml.match(/<title>([\s\S]*?)<\/title>/)?.[1]?.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/, '$1')?.trim() || ''
-    const link = itemXml.match(/<link>([\s\S]*?)<\/link>/)?.[1]?.trim() || ''
-    const guid = itemXml.match(/<guid[^>]*?>([\s\S]*?)<\/guid>/)?.[1]?.trim() || link
+    const rawTitle = itemXml.match(/<title>([\s\S]*?)<\/title>/)?.[1]?.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/, '$1')?.trim() || ''
+    const title = decodeEntities(rawTitle)
+    const rawLink = itemXml.match(/<link>([\s\S]*?)<\/link>/)?.[1]?.trim() || ''
+    const link = decodeEntities(rawLink)
+    const rawGuid = itemXml.match(/<guid[^>]*?>([\s\S]*?)<\/guid>/)?.[1]?.trim() || rawLink
+    const guid = decodeEntities(rawGuid)
     const rawDesc = itemXml.match(/<description>([\s\S]*?)<\/description>/)?.[1]?.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/, '$1')?.trim() || ''
     
     const cleanDesc = truncateText(stripHtml(rawDesc), 300)
