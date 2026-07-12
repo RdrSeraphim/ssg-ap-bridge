@@ -39,22 +39,25 @@ app.get('/', async (c) => {
   let displayName = c.env.name
   let bio = ''
   let avatarUrl = `https://${strHost}/static/icon.png`
+  let coverUrl = ''
   let postTemplate = `**{title}**\n\n{description}\n\n{link}`
 
   try {
     const dbName = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'display_name';`).first<string>('value')
     const dbBio = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'bio';`).first<string>('value')
     const dbAvatar = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'avatar_url';`).first<string>('value')
+    const dbCover = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'cover_url';`).first<string>('value')
     const dbTemplate = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'post_template';`).first<string>('value')
     if (dbName) displayName = dbName
     if (dbBio) bio = dbBio
     if (dbAvatar) avatarUrl = dbAvatar
+    if (dbCover) coverUrl = dbCover
     if (dbTemplate) postTemplate = dbTemplate
   } catch (err) {
     console.error('Failed to load profile settings from DB:', err)
   }
 
-  const profile = { displayName, bio, avatarUrl, postTemplate }
+  const profile = { displayName, bio, avatarUrl, coverUrl, postTemplate }
 
   return c.html(
     <Top
@@ -114,6 +117,7 @@ app.post('/profile', async (c) => {
   const displayName = body['display_name'] as string
   const bio = body['bio'] as string
   const avatarUrl = body['avatar_url'] as string
+  const coverUrl = body['cover_url'] as string
   const postTemplate = body['post_template'] as string
 
   await c.env.DB.prepare(`INSERT OR REPLACE INTO profile(key, value) VALUES(?, ?);`)
@@ -124,6 +128,9 @@ app.post('/profile', async (c) => {
     .run()
   await c.env.DB.prepare(`INSERT OR REPLACE INTO profile(key, value) VALUES(?, ?);`)
     .bind('avatar_url', avatarUrl)
+    .run()
+  await c.env.DB.prepare(`INSERT OR REPLACE INTO profile(key, value) VALUES(?, ?);`)
+    .bind('cover_url', coverUrl)
     .run()
   await c.env.DB.prepare(`INSERT OR REPLACE INTO profile(key, value) VALUES(?, ?);`)
     .bind('post_template', postTemplate)

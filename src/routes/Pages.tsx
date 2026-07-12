@@ -5,6 +5,7 @@ type ProfileData = {
   displayName: string;
   bio: string;
   avatarUrl: string;
+  coverUrl: string;
   postTemplate: string;
 };
 
@@ -23,6 +24,18 @@ export const Top = (props: {
       host={props.host}
     >
       <header style={{ marginBottom: "2rem" }}>
+        {props.profile.coverUrl && (
+          <div style={{
+            width: "100%",
+            height: "160px",
+            borderRadius: "8px",
+            backgroundImage: `url(${props.profile.coverUrl})`,
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+            marginBottom: "1.5rem",
+            border: "1px solid var(--card-border-color)"
+          }} />
+        )}
         <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
           <img
             src={props.profile.avatarUrl}
@@ -93,6 +106,15 @@ export const Top = (props: {
                   value={props.profile.avatarUrl}
                   placeholder="https://example.com/images/avatar.png"
                   required
+                />
+              </label>
+              <label>
+                Cover Image URL
+                <input
+                  type="url"
+                  name="cover_url"
+                  value={props.profile.coverUrl || ""}
+                  placeholder="https://example.com/images/cover.png"
                 />
               </label>
               <label>

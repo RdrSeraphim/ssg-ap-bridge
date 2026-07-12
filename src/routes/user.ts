@@ -19,14 +19,17 @@ app.get(':strName', async (c) => {
   let displayName = c.env.name
   let bio = ''
   let avatarUrl = `https://${strHost}/static/icon.png`
+  let coverUrl = ''
 
   try {
     const dbName = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'display_name';`).first<string>('value')
     const dbBio = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'bio';`).first<string>('value')
     const dbAvatar = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'avatar_url';`).first<string>('value')
+    const dbCover = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'cover_url';`).first<string>('value')
     if (dbName) displayName = dbName
     if (dbBio) bio = dbBio
     if (dbAvatar) avatarUrl = dbAvatar
+    if (dbCover) coverUrl = dbCover
   } catch (err) {
     console.error('Failed to load profile settings from DB:', err)
   }
@@ -63,6 +66,11 @@ app.get(':strName', async (c) => {
       mediaType: 'image/png',
       url: avatarUrl,
     },
+    image: coverUrl ? {
+      type: 'Image',
+      mediaType: 'image/png',
+      url: coverUrl,
+    } : undefined,
     attachment: [
       {
         type: 'PropertyValue',

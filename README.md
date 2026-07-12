@@ -8,7 +8,7 @@ You may like this if you want something like Ghost's ActivityPub integration but
 
 If you are like me, this can help you recover your blog's handle and continue using it. Just bear in mind that Mastodon tends to cache aggressively, so it may take a good minute before you see the profile "reset".
 
-This is used for @blog@srp.life, which forwards posts from https://srp.life ([repo](https://github.com/RdrSeraphim/blog)).
+This is used for [@blog@srp.life](https://mastodon.au/@blog@srp.life), which forwards posts from https://srp.life ([repo](https://github.com/RdrSeraphim/blog)).
 
 ## Features
 
