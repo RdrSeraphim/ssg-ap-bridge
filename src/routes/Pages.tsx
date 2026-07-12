@@ -6,6 +6,7 @@ type ProfileData = {
   bio: string;
   avatarUrl: string;
   coverUrl: string;
+  profileFields: { name: string; value: string }[];
   postTemplate: string;
 };
 
@@ -116,6 +117,34 @@ export const Top = (props: {
                   value={props.profile.coverUrl || ""}
                   placeholder="https://example.com/images/cover.png"
                 />
+              </label>
+              <label style={{ marginBottom: "1.5rem" }}>
+                Profile Links/Metadata (up to 4)
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                  <small><strong>Label</strong></small>
+                  <small><strong>Value (Link or Text)</strong></small>
+                </div>
+                {[1, 2, 3, 4].map((idx) => {
+                  const field = props.profile.profileFields[idx - 1] || { name: "", value: "" };
+                  return (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                      <input
+                        type="text"
+                        name={`field_${idx}_label`}
+                        placeholder="e.g. GitHub"
+                        value={field.name}
+                        style={{ marginBottom: 0 }}
+                      />
+                      <input
+                        type="text"
+                        name={`field_${idx}_value`}
+                        placeholder="e.g. https://github.com/username"
+                        value={field.value}
+                        style={{ marginBottom: 0 }}
+                      />
+                    </div>
+                  );
+                })}
               </label>
               <label>
                 Post Template (RSS Sync)

@@ -35,11 +35,11 @@ app.get('/', async (c) => {
   const { results: rawFollowing } = await c.env.DB.prepare(`SELECT * FROM following;`).all<Following>()
   const following = rawFollowing || []
 
-  // 4. Fetch profile
   let displayName = c.env.name
   let bio = ''
   let avatarUrl = `https://${strHost}/static/icon.png`
   let coverUrl = ''
+  let profileFields: { name: string; value: string }[] = []
   let postTemplate = `**{title}**\n\n{description}\n\n{link}`
 
   try {
@@ -47,17 +47,27 @@ app.get('/', async (c) => {
     const dbBio = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'bio';`).first<string>('value')
     const dbAvatar = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'avatar_url';`).first<string>('value')
     const dbCover = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'cover_url';`).first<string>('value')
+    const dbFields = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'profile_fields';`).first<string>('value')
     const dbTemplate = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'post_template';`).first<string>('value')
     if (dbName) displayName = dbName
     if (dbBio) bio = dbBio
     if (dbAvatar) avatarUrl = dbAvatar
     if (dbCover) coverUrl = dbCover
     if (dbTemplate) postTemplate = dbTemplate
+    if (dbFields) {
+      try {
+        profileFields = JSON.parse(dbFields)
+      } catch (e) {}
+    }
   } catch (err) {
     console.error('Failed to load profile settings from DB:', err)
   }
 
-  const profile = { displayName, bio, avatarUrl, coverUrl, postTemplate }
+  if (profileFields.length === 0) {
+    profileFields = [{ name: 'Blog', value: `https://${strHost}` }]
+  }
+
+  const profile = { displayName, bio, avatarUrl, coverUrl, profileFields, postTemplate }
 
   return c.html(
     <Top
@@ -120,6 +130,15 @@ app.post('/profile', async (c) => {
   const coverUrl = body['cover_url'] as string
   const postTemplate = body['post_template'] as string
 
+  const fields = []
+  for (let i = 1; i <= 4; i++) {
+    const label = (body[`field_${i}_label`] as string || '').trim()
+    const val = (body[`field_${i}_value`] as string || '').trim()
+    if (label && val) {
+      fields.push({ name: label, value: val })
+    }
+  }
+
   await c.env.DB.prepare(`INSERT OR REPLACE INTO profile(key, value) VALUES(?, ?);`)
     .bind('display_name', displayName)
     .run()
@@ -131,6 +150,9 @@ app.post('/profile', async (c) => {
     .run()
   await c.env.DB.prepare(`INSERT OR REPLACE INTO profile(key, value) VALUES(?, ?);`)
     .bind('cover_url', coverUrl)
+    .run()
+  await c.env.DB.prepare(`INSERT OR REPLACE INTO profile(key, value) VALUES(?, ?);`)
+    .bind('profile_fields', JSON.stringify(fields))
     .run()
   await c.env.DB.prepare(`INSERT OR REPLACE INTO profile(key, value) VALUES(?, ?);`)
     .bind('post_template', postTemplate)

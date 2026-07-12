@@ -20,12 +20,14 @@ app.get(':strName', async (c) => {
   let bio = ''
   let avatarUrl = `https://${strHost}/static/icon.png`
   let coverUrl = ''
+  let dbFields: string | null = null
 
   try {
     const dbName = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'display_name';`).first<string>('value')
     const dbBio = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'bio';`).first<string>('value')
     const dbAvatar = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'avatar_url';`).first<string>('value')
     const dbCover = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'cover_url';`).first<string>('value')
+    dbFields = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'profile_fields';`).first<string>('value')
     if (dbName) displayName = dbName
     if (dbBio) bio = dbBio
     if (dbAvatar) avatarUrl = dbAvatar
@@ -41,6 +43,32 @@ app.get(':strName', async (c) => {
   const PRIVATE_KEY = await importprivateKey(c.env.PRIVATE_KEY)
   const PUBLIC_KEY = await privateKeyToPublicKey(PRIVATE_KEY)
   const public_key_pem = await exportPublicKey(PUBLIC_KEY)
+
+  let attachment: any[] = []
+  if (dbFields) {
+    try {
+      const parsedFields = JSON.parse(dbFields) as { name: string; value: string }[]
+      attachment = parsedFields.map((f) => ({
+        type: 'PropertyValue',
+        name: f.name,
+        value: f.value.startsWith('http')
+          ? `<a href="${f.value}" target="_blank" rel="nofollow noopener noreferrer me">${f.value}</a>`
+          : f.value,
+      }))
+    } catch (e) {
+      console.error('Failed to parse profile fields:', e)
+    }
+  }
+
+  if (attachment.length === 0) {
+    attachment = [
+      {
+        type: 'PropertyValue',
+        name: 'Blog',
+        value: `<a href="https://${strHost}" target="_blank" rel="nofollow noopener noreferrer me">https://${strHost}</a>`,
+      },
+    ]
+  }
 
   const r = {
     '@context': ['https://www.w3.org/ns/activitystreams', 'https://w3id.org/security/v1'],
@@ -71,13 +99,7 @@ app.get(':strName', async (c) => {
       mediaType: 'image/png',
       url: coverUrl,
     } : undefined,
-    attachment: [
-      {
-        type: 'PropertyValue',
-        name: 'Blog',
-        value: `<a href="https://${strHost}" target="_blank" rel="nofollow noopener noreferrer me">https://${strHost}</a>`
-      }
-    ]
+    attachment
   }
 
   return c.json(r, 200, { 'Content-Type': 'application/activity+json' })
