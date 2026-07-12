@@ -1,4 +1,4 @@
-name = "minidon"
+name = "ssg-ap-bridge"
 compatibility_date = "2023-01-01"
 
 [site]
@@ -6,7 +6,7 @@ bucket = "./public"
 
 [[ d1_databases ]]
 binding = "DB"
-database_name = "minidon"
+database_name = "ssg-ap-bridge"
 database_id = ""
 preview_database_id = ""
 
@@ -20,3 +20,18 @@ PRIVATE_KEY = """-----BEGIN PRIVATE KEY-----
 
 -----END PRIVATE KEY-----
 """
+
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
+persist = true
+head_sampling_rate = 1

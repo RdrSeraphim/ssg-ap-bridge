@@ -7,14 +7,17 @@ export function btos(b: ArrayBuffer) {
 }
 
 export async function importprivateKey(pem: string) {
-  const pemHeader = '-----BEGIN PRIVATE KEY-----'
-  const pemFooter = '-----END PRIVATE KEY-----'
+  pem = pem.trim()
   if (pem.startsWith('"')) pem = pem.slice(1)
   if (pem.endsWith('"')) pem = pem.slice(0, -1)
+  pem = pem.trim()
+  pem = pem.replace(/-----BEGIN [A-Z\s]+-----/i, '')
+  pem = pem.replace(/-----END [A-Z\s]+-----/i, '')
   pem = pem.split('\\n').join('')
   pem = pem.split('\n').join('')
-  const pemContents = pem.substring(pemHeader.length, pem.length - pemFooter.length)
-  const der = stob(atob(pemContents))
+  pem = pem.split('\r').join('')
+  pem = pem.replace(/\s/g, '') // remove all remaining spaces and tabs
+  const der = stob(atob(pem))
   const r = await crypto.subtle.importKey(
     'pkcs8',
     der,

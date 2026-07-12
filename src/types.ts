@@ -11,6 +11,20 @@ export type Env = {
 
 export type Follower = {
   id: string
+  inbox: string
+}
+
+export type Following = {
+  id: string
+  handle: string
+  inbox: string
+  state: string
+  follow_activity_id: string
+}
+
+export type Profile = {
+  key: string
+  value: string
 }
 
 export type Message = {
