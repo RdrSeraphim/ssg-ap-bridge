@@ -92,7 +92,7 @@ export async function acceptFollow(
   await postInbox(strInbox, res, headers);
 }
 
-function markdownToHtml(md: string): string {
+export function markdownToHtml(md: string): string {
   let html = md.trim()
   html = html
     .replace(/&/g, '&amp;')
@@ -182,3 +182,67 @@ export async function deleteNote(
   );
   await postInbox(strInbox, res, headers);
 }
+
+export async function fetchActor(
+  actorUrl: string,
+  strName: string,
+  strHost: string,
+  privateKey: CryptoKey,
+): Promise<any> {
+  const url = new URL(actorUrl);
+  const strTime = new Date().toUTCString();
+  const signatureString = `(request-target): get ${url.pathname}${url.search}\n` +
+    `host: ${url.hostname}\n` +
+    `date: ${strTime}`;
+  const sig = await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5",
+    privateKey,
+    stob(signatureString),
+  );
+  const b64 = btoa(btos(sig));
+
+  const headers = {
+    Host: url.hostname,
+    Date: strTime,
+    Signature:
+      `keyId="https://${strHost}/u/${strName}#main-key-v2",` +
+      `algorithm="rsa-sha256",` +
+      `headers="(request-target) host date",` +
+      `signature="${b64}"`,
+    Accept: "application/activity+json, application/ld+json",
+    "User-Agent": `ssg-ap-bridge/0.0.0 (+https://${strHost}/)`,
+  };
+
+  const res = await fetch(actorUrl, {
+    method: "GET",
+    headers,
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to fetch actor ${actorUrl}: ${res.status} ${await res.text()}`);
+  }
+
+  return res.json();
+}
+
+export function base64urlEncode(str: string): string {
+  return btoa(unescape(encodeURIComponent(str)))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+export function base64urlDecode(str: string): string {
+  let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (base64.length % 4) {
+    base64 += '=';
+  }
+  return decodeURIComponent(escape(atob(base64)));
+}
+
+export function extractFirstLink(text: string): string | null {
+  const match = text.match(/https?:\/\/[^\s\)\"\'\>]+/);
+  return match ? match[0] : null;
+}
+
+

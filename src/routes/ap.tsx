@@ -4,7 +4,7 @@ import { Top } from './Pages'
 import { Env, Follower, Following, Message } from '../types'
 import { validator } from 'hono/validator'
 import { importprivateKey } from '../utils'
-import { createNote, deleteNote, getInbox, postInbox, signHeaders } from '../logic'
+import { createNote, deleteNote, fetchActor, postInbox, signHeaders } from '../logic'
 import { syncFeed } from './api'
 
 const app = new Hono<Env>({ strict: false })
@@ -117,9 +117,18 @@ app.post(
       })
     )
 
+    // Run DB migration to ensure 'published' column exists
+    try {
+      await c.env.DB.prepare(`ALTER TABLE message ADD COLUMN published TEXT;`).run()
+    } catch (e) {
+      // Column already exists
+    }
+
+    const published = new Date().toISOString()
+
     // Log the message in the DB
-    await c.env.DB.prepare(`INSERT INTO message(id, body) VALUES(?, ?);`)
-      .bind(messageId, data.body)
+    await c.env.DB.prepare(`INSERT INTO message(id, body, published) VALUES(?, ?, ?);`)
+      .bind(messageId, data.body, published)
       .run()
 
     return c.redirect('/ap')
@@ -240,9 +249,7 @@ app.post('/follow', async (c) => {
     }
 
     // Fetch target actor object
-    const actorRes = await fetch(actorUrl, { headers: { Accept: 'application/activity+json, application/ld+json' } })
-    if (!actorRes.ok) throw new Error(`Failed to fetch target actor: ${actorRes.status}`)
-    const actorData = await actorRes.json<any>()
+    const actorData = await fetchActor(actorUrl, strName, strHost, PRIVATE_KEY)
     const targetInbox = actorData.inbox
     const targetActorId = actorData.id || actorUrl
     if (!targetInbox) throw new Error(`Target actor has no inbox`)

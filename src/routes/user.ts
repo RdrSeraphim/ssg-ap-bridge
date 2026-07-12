@@ -4,9 +4,9 @@
  */
 
 import { Hono } from 'hono'
-import { Env, Follower, Following } from '../types'
+import { Env, Follower, Following, Message } from '../types'
 import { exportPublicKey, importprivateKey, privateKeyToPublicKey } from '../utils'
-import { acceptFollow, getInbox } from '../logic'
+import { acceptFollow, fetchActor, base64urlDecode, base64urlEncode, extractFirstLink, markdownToHtml } from '../logic'
 
 const app = new Hono<Env>()
 
@@ -78,6 +78,7 @@ app.get(':strName', async (c) => {
     id: `https://${strHost}/u/${strName}`,
     type: isBot ? 'Service' : 'Person',
     inbox: `https://${strHost}/u/${strName}/inbox`,
+    outbox: `https://${strHost}/u/${strName}/outbox`,
     followers: `https://${strHost}/u/${strName}/followers`,
     following: `https://${strHost}/u/${strName}/following`,
     preferredUsername: strName,
@@ -118,13 +119,23 @@ app.post(':strName/inbox', async (c) => {
   const y = await c.req.json<any>()
   if (new URL(y.actor).protocol !== 'https:') return c.body(null, 400)
 
-  const x = await getInbox(y.actor) as any
-  if (!x) return c.body(null, 500)
-
   const private_key = await importprivateKey(c.env.PRIVATE_KEY)
 
   if (y.type === 'Follow') {
     const actor = y.actor
+    let x: any
+    try {
+      x = await fetchActor(actor, strName, strHost, private_key)
+    } catch (err) {
+      console.error(`Failed to fetch actor profile for ${actor}:`, err)
+      return c.body(null, 500)
+    }
+
+    if (!x || !x.inbox) {
+      console.error(`Actor profile for ${actor} is missing inbox:`, x)
+      return c.body(null, 500)
+    }
+
     await c.env.DB.prepare(`INSERT OR REPLACE INTO follower(id, inbox) VALUES(?, ?);`).bind(actor, x.inbox).run()
     await acceptFollow(strName, strHost, x.inbox, y, private_key)
     return c.body(null)
@@ -199,6 +210,180 @@ app.get(':strName/following', async (c) => {
       partOf: `https://${strHost}/u/${strName}/following`,
       orderedItems: items,
       id: `https://${strHost}/u/${strName}/following?page=1`,
+    },
+  }
+
+  return c.json(r, 200, { 'Content-Type': 'application/activity+json' })
+})
+
+app.get(':strName/outbox', async (c) => {
+  const strName = c.req.param('strName')
+  const strHost = new URL(c.req.url).hostname
+  if (strName !== c.env.preferredUsername) return c.notFound()
+
+  const isPage = c.req.query('page') === 'true'
+
+  // Fetch total count of messages
+  const totalCountRes = await c.env.DB.prepare(`SELECT COUNT(*) as count FROM message;`).first<{ count: number }>()
+  const totalItems = totalCountRes?.count || 0
+
+  if (!isPage) {
+    const r = {
+      '@context': 'https://www.w3.org/ns/activitystreams',
+      id: `https://${strHost}/u/${strName}/outbox`,
+      type: 'OrderedCollection',
+      totalItems,
+      first: `https://${strHost}/u/${strName}/outbox?page=true`,
+    }
+    return c.json(r, 200, { 'Content-Type': 'application/activity+json' })
+  }
+
+  // Fetch all messages
+  let rawMessages: any[] = []
+  try {
+    const { results } = await c.env.DB.prepare(`SELECT id, body, published FROM message ORDER BY ROWID DESC;`).all()
+    rawMessages = results || []
+  } catch (e) {
+    const { results } = await c.env.DB.prepare(`SELECT id, body FROM message ORDER BY ROWID DESC;`).all()
+    rawMessages = results || []
+  }
+
+  const items = rawMessages.map((msg) => {
+    const isRss = !msg.id.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+    const noteIdStr = isRss ? base64urlEncode(msg.id) : msg.id
+    const published = msg.published || new Date().toISOString()
+
+    return {
+      id: `https://${strHost}/u/${strName}/s/${noteIdStr}/activity`,
+      type: 'Create',
+      actor: `https://${strHost}/u/${strName}`,
+      published,
+      to: ['https://www.w3.org/ns/activitystreams#Public'],
+      cc: [`https://${strHost}/u/${strName}/followers`],
+      object: {
+        id: `https://${strHost}/u/${strName}/s/${noteIdStr}`,
+        type: 'Note',
+        attributedTo: `https://${strHost}/u/${strName}`,
+        content: markdownToHtml(msg.body),
+        url: `https://${strHost}/u/${strName}/s/${noteIdStr}`,
+        published,
+        to: ['https://www.w3.org/ns/activitystreams#Public'],
+        cc: [`https://${strHost}/u/${strName}/followers`],
+      },
+    }
+  })
+
+  const r = {
+    '@context': 'https://www.w3.org/ns/activitystreams',
+    id: `https://${strHost}/u/${strName}/outbox?page=true`,
+    type: 'OrderedCollectionPage',
+    partOf: `https://${strHost}/u/${strName}/outbox`,
+    orderedItems: items,
+  }
+
+  return c.json(r, 200, { 'Content-Type': 'application/activity+json' })
+})
+
+app.get(':strName/s/:noteId', async (c) => {
+  const strName = c.req.param('strName')
+  const noteId = c.req.param('noteId')
+  const strHost = new URL(c.req.url).hostname
+  if (strName !== c.env.preferredUsername) return c.notFound()
+
+  let msg: any = null
+  try {
+    msg = await c.env.DB.prepare(`SELECT id, body, published FROM message WHERE id = ?;`).bind(noteId).first()
+  } catch (e) {
+    msg = await c.env.DB.prepare(`SELECT id, body FROM message WHERE id = ?;`).bind(noteId).first()
+  }
+
+  if (!msg) {
+    try {
+      const decodedGuid = base64urlDecode(noteId)
+      try {
+        msg = await c.env.DB.prepare(`SELECT id, body, published FROM message WHERE id = ?;`).bind(decodedGuid).first()
+      } catch (e) {
+        msg = await c.env.DB.prepare(`SELECT id, body FROM message WHERE id = ?;`).bind(decodedGuid).first()
+      }
+    } catch (e) {
+      // Ignore
+    }
+  }
+
+  if (!msg) return c.notFound()
+
+  if (!c.req.header('Accept')?.includes('application/activity+json')) {
+    const articleLink = extractFirstLink(msg.body)
+    if (articleLink) {
+      return c.redirect(articleLink)
+    }
+    return c.redirect(`https://${strHost}`)
+  }
+
+  const published = msg.published || new Date().toISOString()
+
+  const r = {
+    '@context': ['https://www.w3.org/ns/activitystreams', 'https://w3id.org/security/v1'],
+    id: `https://${strHost}/u/${strName}/s/${noteId}`,
+    type: 'Note',
+    attributedTo: `https://${strHost}/u/${strName}`,
+    content: markdownToHtml(msg.body),
+    url: `https://${strHost}/u/${strName}/s/${noteId}`,
+    published,
+    to: ['https://www.w3.org/ns/activitystreams#Public'],
+    cc: [`https://${strHost}/u/${strName}/followers`],
+  }
+
+  return c.json(r, 200, { 'Content-Type': 'application/activity+json' })
+})
+
+app.get(':strName/s/:noteId/activity', async (c) => {
+  const strName = c.req.param('strName')
+  const noteId = c.req.param('noteId')
+  const strHost = new URL(c.req.url).hostname
+  if (strName !== c.env.preferredUsername) return c.notFound()
+
+  let msg: any = null
+  try {
+    msg = await c.env.DB.prepare(`SELECT id, body, published FROM message WHERE id = ?;`).bind(noteId).first()
+  } catch (e) {
+    msg = await c.env.DB.prepare(`SELECT id, body FROM message WHERE id = ?;`).bind(noteId).first()
+  }
+
+  if (!msg) {
+    try {
+      const decodedGuid = base64urlDecode(noteId)
+      try {
+        msg = await c.env.DB.prepare(`SELECT id, body, published FROM message WHERE id = ?;`).bind(decodedGuid).first()
+      } catch (e) {
+        msg = await c.env.DB.prepare(`SELECT id, body FROM message WHERE id = ?;`).bind(decodedGuid).first()
+      }
+    } catch (e) {
+      // Ignore
+    }
+  }
+
+  if (!msg) return c.notFound()
+
+  const published = msg.published || new Date().toISOString()
+
+  const r = {
+    '@context': ['https://www.w3.org/ns/activitystreams', 'https://w3id.org/security/v1'],
+    id: `https://${strHost}/u/${strName}/s/${noteId}/activity`,
+    type: 'Create',
+    actor: `https://${strHost}/u/${strName}`,
+    published,
+    to: ['https://www.w3.org/ns/activitystreams#Public'],
+    cc: [`https://${strHost}/u/${strName}/followers`],
+    object: {
+      id: `https://${strHost}/u/${strName}/s/${noteId}`,
+      type: 'Note',
+      attributedTo: `https://${strHost}/u/${strName}`,
+      content: markdownToHtml(msg.body),
+      url: `https://${strHost}/u/${strName}/s/${noteId}`,
+      published,
+      to: ['https://www.w3.org/ns/activitystreams#Public'],
+      cc: [`https://${strHost}/u/${strName}/followers`],
     },
   }
 

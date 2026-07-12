@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { basicAuth } from 'hono/basic-auth'
 import { Env, Follower, Following, Message } from '../types'
 import { importprivateKey, decodeEntities } from '../utils'
-import { createNote, getInbox, postInbox, signHeaders } from '../logic'
+import { createNote, fetchActor, postInbox, signHeaders, base64urlEncode } from '../logic'
 
 const app = new Hono<Env>()
 
@@ -80,6 +80,13 @@ export async function syncFeed(feedUrl: string, db: D1Database, env: Env['Bindin
     console.error('Failed to load post template from D1:', err)
   }
 
+  // Run DB migration to ensure 'published' column exists
+  try {
+    await db.prepare(`ALTER TABLE message ADD COLUMN published TEXT;`).run()
+  } catch (e) {
+    // Column already exists
+  }
+
   const newPosts: string[] = []
 
   // Process from oldest to newest (to publish in chronological order)
@@ -90,7 +97,7 @@ export async function syncFeed(feedUrl: string, db: D1Database, env: Env['Bindin
       .first()
 
     if (!existing) {
-      const messageId = crypto.randomUUID()
+      const messageId = base64urlEncode(item.guid)
       const bodyText = postTemplate
         .replace(/{title}/g, item.title)
         .replace(/{description}/g, item.description)
@@ -107,9 +114,11 @@ export async function syncFeed(feedUrl: string, db: D1Database, env: Env['Bindin
         })
       )
 
+      const published = new Date().toISOString()
+
       // Store the feed item GUID/URL as the ID in D1 to prevent duplicate posts
-      await db.prepare(`INSERT INTO message(id, body) VALUES(?, ?);`)
-        .bind(item.guid, bodyText)
+      await db.prepare(`INSERT INTO message(id, body, published) VALUES(?, ?, ?);`)
+        .bind(item.guid, bodyText, published)
         .run()
 
       newPosts.push(item.title)
@@ -169,9 +178,7 @@ app.post('/follow', async (c) => {
     }
 
     // Fetch target actor object
-    const actorRes = await fetch(actorUrl, { headers: { Accept: 'application/activity+json, application/ld+json' } })
-    if (!actorRes.ok) throw new Error(`Failed to fetch target actor: ${actorRes.status}`)
-    const actorData = await actorRes.json<any>()
+    const actorData = await fetchActor(actorUrl, strName, strHost, PRIVATE_KEY)
     const targetInbox = actorData.inbox
     const targetActorId = actorData.id || actorUrl
     if (!targetInbox) throw new Error(`Target actor has no inbox`)
