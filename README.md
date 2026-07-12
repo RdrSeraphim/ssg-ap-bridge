@@ -8,7 +8,7 @@ You may like this if you want something like Ghost's ActivityPub integration but
 
 If you are like me, this can help you recover your blog's handle and continue using it. Just bear in mind that Mastodon tends to cache aggressively, so it may take a good minute before you see the profile "reset".
 
-This is used for [@blog@srp.life](https://mastodon.au/@blog@srp.life), which forwards posts from https://srp.life ([repo](https://github.com/RdrSeraphim/blog)).
+This is used for [@blog@srp.life](https://defcon.social/@blog@srp.life), which forwards posts from https://srp.life ([repo](https://github.com/RdrSeraphim/blog)).
 
 ## Features
 
@@ -39,13 +39,13 @@ node scripts/generate-key.js
    ```bash
    npx wrangler d1 create ssg-ap-bridge
    ```
-2. Copy the `database_id` output and paste it into the `database_id` field in your **[wrangler.toml](file:///home/srp/code/ssg-ap-bridge/wrangler.toml)**.
+2. Copy the `database_id` output and paste it into the `database_id` field in your `wrangler.toml`.
 3. Apply the SQL schema to create the tables:
    - **For local testing**: `npx wrangler d1 execute ssg-ap-bridge --local --file=./ssg-ap-bridge.sql`
    - **For production**: `npx wrangler d1 execute ssg-ap-bridge --remote --file=./ssg-ap-bridge.sql`
 
 ### 4. Configure wrangler.toml
-Edit **[wrangler.toml](file:///home/srp/code/ssg-ap-bridge/wrangler.toml)** and fill in your variables under `[vars]`:
+Edit `wrangler.toml` and fill in your variables under `[vars]`:
 - `preferredUsername`: The handle username (e.g. `blog`).
 - `name`: Default display name.
 - `BASIC_USERNAME`: Dashboard username.
