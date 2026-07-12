@@ -39,94 +39,99 @@ function truncateText(text: string, maxLength: number) {
  * Sync posts from the Hugo RSS feed and broadcast any new posts to followers
  * Triggered via GitHub Actions post-deploy curl call
  */
+export async function syncFeed(feedUrl: string, db: D1Database, env: Env['Bindings'], strHost: string) {
+  const res = await fetch(feedUrl)
+  if (!res.ok) throw new Error(`Failed to fetch RSS feed from ${feedUrl}: ${res.status}`)
+  
+  const xml = await res.text()
+
+  // Simple regex RSS parser
+  const items: { title: string; link: string; guid: string; description: string }[] = []
+  const matches = xml.matchAll(/<item>([\s\S]*?)<\/item>/g)
+  for (const match of matches) {
+    const itemXml = match[1]
+    const title = itemXml.match(/<title>([\s\S]*?)<\/title>/)?.[1]?.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/, '$1')?.trim() || ''
+    const link = itemXml.match(/<link>([\s\S]*?)<\/link>/)?.[1]?.trim() || ''
+    const guid = itemXml.match(/<guid[^>]*?>([\s\S]*?)<\/guid>/)?.[1]?.trim() || link
+    const rawDesc = itemXml.match(/<description>([\s\S]*?)<\/description>/)?.[1]?.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/, '$1')?.trim() || ''
+    
+    const cleanDesc = truncateText(stripHtml(rawDesc), 300)
+    if (link) {
+      items.push({ title, link, guid, description: cleanDesc })
+    }
+  }
+
+  if (items.length === 0) {
+    return { success: true, message: 'No items found in RSS feed or parsing issue.' }
+  }
+
+  const strName = env.preferredUsername
+  const PRIVATE_KEY = await importprivateKey(env.PRIVATE_KEY)
+
+  // Fetch followers from D1
+  const { results: rawFollowers } = await db.prepare(`SELECT inbox FROM follower;`).all<{ inbox: string }>()
+  const followers = rawFollowers || []
+
+  // Fetch post template from D1, fallback to a default
+  let postTemplate = `**{title}**\n\n{description}\n\n{link}`
+  try {
+    const dbTemplate = await db.prepare(`SELECT value FROM profile WHERE key = 'post_template';`).first<string>('value')
+    if (dbTemplate) postTemplate = dbTemplate
+  } catch (err) {
+    console.error('Failed to load post template from D1:', err)
+  }
+
+  const newPosts: string[] = []
+
+  // Process from oldest to newest (to publish in chronological order)
+  for (const item of items.reverse()) {
+    // Check if this guid is already in the database
+    const existing = await db.prepare(`SELECT id FROM message WHERE id = ?;`)
+      .bind(item.guid)
+      .first()
+
+    if (!existing) {
+      const messageId = crypto.randomUUID()
+      const bodyText = postTemplate
+        .replace(/{title}/g, item.title)
+        .replace(/{description}/g, item.description)
+        .replace(/{link}/g, item.link)
+
+      // Publish to all followers in parallel
+      await Promise.all(
+        followers.map(async (follower) => {
+          try {
+            await createNote(messageId, strName, strHost, follower.inbox, bodyText, PRIVATE_KEY)
+          } catch (err) {
+            console.error(`Failed to push note to follower ${follower.inbox}:`, err)
+          }
+        })
+      )
+
+      // Store the feed item GUID/URL as the ID in D1 to prevent duplicate posts
+      await db.prepare(`INSERT INTO message(id, body) VALUES(?, ?);`)
+        .bind(item.guid, bodyText)
+        .run()
+
+      newPosts.push(item.title)
+    }
+  }
+
+  return {
+    success: true,
+    processedCount: items.length,
+    newPostCount: newPosts.length,
+    newPosts,
+  }
+}
+
 app.post('/sync-feed', async (c) => {
   const feedUrl = c.req.query('feedUrl') || `https://${new URL(c.req.url).hostname}/index.xml`
   
   try {
-    const res = await fetch(feedUrl)
-    if (!res.ok) throw new Error(`Failed to fetch RSS feed from ${feedUrl}: ${res.status}`)
-    
-    const xml = await res.text()
-
-    // Simple regex RSS parser
-    const items: { title: string; link: string; guid: string; description: string }[] = []
-    const matches = xml.matchAll(/<item>([\s\S]*?)<\/item>/g)
-    for (const match of matches) {
-      const itemXml = match[1]
-      const title = itemXml.match(/<title>([\s\S]*?)<\/title>/)?.[1]?.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/, '$1')?.trim() || ''
-      const link = itemXml.match(/<link>([\s\S]*?)<\/link>/)?.[1]?.trim() || ''
-      const guid = itemXml.match(/<guid[^>]*?>([\s\S]*?)<\/guid>/)?.[1]?.trim() || link
-      const rawDesc = itemXml.match(/<description>([\s\S]*?)<\/description>/)?.[1]?.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/, '$1')?.trim() || ''
-      
-      const cleanDesc = truncateText(stripHtml(rawDesc), 300)
-      if (link) {
-        items.push({ title, link, guid, description: cleanDesc })
-      }
-    }
-
-    if (items.length === 0) {
-      return c.json({ success: true, message: 'No items found in RSS feed or parsing issue.' })
-    }
-
     const strHost = new URL(c.req.url).hostname
-    const strName = c.env.preferredUsername
-    const PRIVATE_KEY = await importprivateKey(c.env.PRIVATE_KEY)
-
-    // Fetch followers from D1
-    const { results: rawFollowers } = await c.env.DB.prepare(`SELECT inbox FROM follower;`).all<{ inbox: string }>()
-    const followers = rawFollowers || []
-
-    // Fetch post template from D1, fallback to a default
-    let postTemplate = `**{title}**\n\n{description}\n\n{link}`
-    try {
-      const dbTemplate = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'post_template';`).first<string>('value')
-      if (dbTemplate) postTemplate = dbTemplate
-    } catch (err) {
-      console.error('Failed to load post template from D1:', err)
-    }
-
-    const newPosts: string[] = []
-
-    // Process from oldest to newest (to publish in chronological order)
-    for (const item of items.reverse()) {
-      // Check if this guid is already in the database
-      const existing = await c.env.DB.prepare(`SELECT id FROM message WHERE id = ?;`)
-        .bind(item.guid)
-        .first()
-
-      if (!existing) {
-        const messageId = crypto.randomUUID()
-        const bodyText = postTemplate
-          .replace(/{title}/g, item.title)
-          .replace(/{description}/g, item.description)
-          .replace(/{link}/g, item.link)
-
-        // Publish to all followers in parallel
-        await Promise.all(
-          followers.map(async (follower) => {
-            try {
-              await createNote(messageId, strName, strHost, follower.inbox, bodyText, PRIVATE_KEY)
-            } catch (err) {
-              console.error(`Failed to push note to follower ${follower.inbox}:`, err)
-            }
-          })
-        )
-
-        // Store the feed item GUID/URL as the ID in D1 to prevent duplicate posts
-        await c.env.DB.prepare(`INSERT INTO message(id, body) VALUES(?, ?);`)
-          .bind(item.guid, bodyText)
-          .run()
-
-        newPosts.push(item.title)
-      }
-    }
-
-    return c.json({
-      success: true,
-      processedCount: items.length,
-      newPostCount: newPosts.length,
-      newPosts,
-    })
+    const result = await syncFeed(feedUrl, c.env.DB, c.env, strHost)
+    return c.json(result)
   } catch (err: any) {
     console.error(err)
     return c.json({ success: false, error: err.message }, 500)

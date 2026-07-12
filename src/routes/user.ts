@@ -21,17 +21,20 @@ app.get(':strName', async (c) => {
   let avatarUrl = `https://${strHost}/static/icon.png`
   let coverUrl = ''
   let dbFields: string | null = null
+  let isBot = false
 
   try {
     const dbName = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'display_name';`).first<string>('value')
     const dbBio = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'bio';`).first<string>('value')
     const dbAvatar = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'avatar_url';`).first<string>('value')
     const dbCover = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'cover_url';`).first<string>('value')
+    const dbIsBot = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'is_bot';`).first<string>('value')
     dbFields = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'profile_fields';`).first<string>('value')
     if (dbName) displayName = dbName
     if (dbBio) bio = dbBio
     if (dbAvatar) avatarUrl = dbAvatar
     if (dbCover) coverUrl = dbCover
+    if (dbIsBot) isBot = dbIsBot === 'true'
   } catch (err) {
     console.error('Failed to load profile settings from DB:', err)
   }
@@ -73,7 +76,7 @@ app.get(':strName', async (c) => {
   const r = {
     '@context': ['https://www.w3.org/ns/activitystreams', 'https://w3id.org/security/v1'],
     id: `https://${strHost}/u/${strName}`,
-    type: 'Person',
+    type: isBot ? 'Service' : 'Person',
     inbox: `https://${strHost}/u/${strName}/inbox`,
     followers: `https://${strHost}/u/${strName}/followers`,
     following: `https://${strHost}/u/${strName}/following`,

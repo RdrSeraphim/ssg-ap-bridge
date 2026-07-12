@@ -5,6 +5,7 @@ import { Env, Follower, Following, Message } from '../types'
 import { validator } from 'hono/validator'
 import { importprivateKey } from '../utils'
 import { createNote, deleteNote, getInbox, postInbox, signHeaders } from '../logic'
+import { syncFeed } from './api'
 
 const app = new Hono<Env>({ strict: false })
 
@@ -39,6 +40,7 @@ app.get('/', async (c) => {
   let bio = ''
   let avatarUrl = `https://${strHost}/static/icon.png`
   let coverUrl = ''
+  let isBot = false
   let profileFields: { name: string; value: string }[] = []
   let postTemplate = `**{title}**\n\n{description}\n\n{link}`
 
@@ -47,6 +49,7 @@ app.get('/', async (c) => {
     const dbBio = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'bio';`).first<string>('value')
     const dbAvatar = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'avatar_url';`).first<string>('value')
     const dbCover = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'cover_url';`).first<string>('value')
+    const dbIsBot = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'is_bot';`).first<string>('value')
     const dbFields = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'profile_fields';`).first<string>('value')
     const dbTemplate = await c.env.DB.prepare(`SELECT value FROM profile WHERE key = 'post_template';`).first<string>('value')
     if (dbName) displayName = dbName
@@ -54,6 +57,7 @@ app.get('/', async (c) => {
     if (dbAvatar) avatarUrl = dbAvatar
     if (dbCover) coverUrl = dbCover
     if (dbTemplate) postTemplate = dbTemplate
+    if (dbIsBot) isBot = dbIsBot === 'true'
     if (dbFields) {
       try {
         profileFields = JSON.parse(dbFields)
@@ -67,7 +71,7 @@ app.get('/', async (c) => {
     profileFields = [{ name: 'Blog', value: `https://${strHost}` }]
   }
 
-  const profile = { displayName, bio, avatarUrl, coverUrl, profileFields, postTemplate }
+  const profile = { displayName, bio, avatarUrl, coverUrl, isBot, profileFields, postTemplate }
 
   return c.html(
     <Top
@@ -128,6 +132,7 @@ app.post('/profile', async (c) => {
   const bio = body['bio'] as string
   const avatarUrl = body['avatar_url'] as string
   const coverUrl = body['cover_url'] as string
+  const isBot = body['is_bot'] === 'true' || body['is_bot'] === 'on'
   const postTemplate = body['post_template'] as string
 
   const fields = []
@@ -150,6 +155,9 @@ app.post('/profile', async (c) => {
     .run()
   await c.env.DB.prepare(`INSERT OR REPLACE INTO profile(key, value) VALUES(?, ?);`)
     .bind('cover_url', coverUrl)
+    .run()
+  await c.env.DB.prepare(`INSERT OR REPLACE INTO profile(key, value) VALUES(?, ?);`)
+    .bind('is_bot', isBot ? 'true' : 'false')
     .run()
   await c.env.DB.prepare(`INSERT OR REPLACE INTO profile(key, value) VALUES(?, ?);`)
     .bind('profile_fields', JSON.stringify(fields))
@@ -347,6 +355,59 @@ app.post('/delete', async (c) => {
   } catch (err: any) {
     console.error(err)
     return c.text(`Error deleting note: ${err.message}`, 500)
+  }
+})
+
+app.post('/delete-all', async (c) => {
+  const strHost = new URL(c.req.url).hostname
+  const strName = c.env.preferredUsername
+  const PRIVATE_KEY = await importprivateKey(c.env.PRIVATE_KEY)
+
+  try {
+    // Get all messages
+    const { results: rawMessages } = await c.env.DB.prepare(`SELECT * FROM message;`).all<Message>()
+    const messages = rawMessages || []
+
+    // Get all followers
+    const { results: followers } = await c.env.DB.prepare(`SELECT * FROM follower;`).all<Follower>()
+    const followerList = followers || []
+
+    // Broadcast Deletes in parallel
+    await Promise.all(
+      messages.flatMap((msg) => {
+        const noteId = `https://${strHost}/u/${strName}/s/${msg.id}`
+        return followerList.map(async (follower) => {
+          try {
+            await deleteNote(strName, strHost, follower.inbox, noteId, PRIVATE_KEY)
+          } catch (err) {
+            console.error(`Failed to send Delete to follower ${follower.inbox}:`, err)
+          }
+        })
+      })
+    )
+
+    // Clear local D1 database messages
+    await c.env.DB.prepare(`DELETE FROM message;`).run()
+
+    return c.redirect('/ap')
+  } catch (err: any) {
+    console.error(err)
+    return c.text(`Error deleting all notes: ${err.message}`, 500)
+  }
+})
+
+app.post('/sync-feed', async (c) => {
+  const body = await c.req.parseBody()
+  const feedUrl = (body['feed_url'] as string || '').trim()
+  const strHost = new URL(c.req.url).hostname
+  const finalFeedUrl = feedUrl || `https://${strHost}/index.xml`
+
+  try {
+    await syncFeed(finalFeedUrl, c.env.DB, c.env, strHost)
+    return c.redirect('/ap')
+  } catch (err: any) {
+    console.error(err)
+    return c.text(`Error syncing feed: ${err.message}`, 500)
   }
 })
 

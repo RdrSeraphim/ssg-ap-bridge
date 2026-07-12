@@ -103,6 +103,10 @@ function markdownToHtml(md: string): string {
 
   // Convert markdown links [text](url) to HTML links
   html = html.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank" rel="nofollow noopener noreferrer">$1</a>')
+  // Auto-link plain text HTTP/HTTPS URLs (avoiding URLs already converted inside HTML tags)
+  html = html.replace(/(?<!href=")(?<!">)https?:\/\/[^\s<]+/g, (url) => {
+    return `<a href="${url}" target="_blank" rel="nofollow noopener noreferrer">${url}</a>`
+  })
   // Convert double asterisks to bold (<strong>)
   html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
   // Convert single asterisks to italic (<em>)

@@ -6,6 +6,7 @@ type ProfileData = {
   bio: string;
   avatarUrl: string;
   coverUrl: string;
+  isBot: boolean;
   profileFields: { name: string; value: string }[];
   postTemplate: string;
 };
@@ -117,6 +118,15 @@ export const Top = (props: {
                   value={props.profile.coverUrl || ""}
                   placeholder="https://example.com/images/cover.png"
                 />
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1.5rem", userSelect: "none", cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  name="is_bot"
+                  checked={props.profile.isBot}
+                  style={{ margin: 0 }}
+                />
+                <span>Label account as a Bot (Service)</span>
               </label>
               <label style={{ marginBottom: "1.5rem" }}>
                 Profile Links/Metadata (up to 4)
@@ -262,8 +272,27 @@ export const Top = (props: {
           </article>
         </div>
 
-        {/* Right Column: Post note & Recent broadcast feed */}
+        {/* Right Column: Sync Feed, Post note & Recent broadcast feed */}
         <div>
+          <article>
+            <header>
+              <strong>Sync RSS Feed</strong>
+            </header>
+            <form action="/ap/sync-feed" method="post" style={{ margin: 0 }}>
+              <label>
+                RSS Feed URL
+                <input
+                  type="url"
+                  name="feed_url"
+                  value={`https://${props.host}/index.xml`}
+                  placeholder="https://example.com/index.xml"
+                  required
+                />
+              </label>
+              <button type="submit" class="contrast" style={{ margin: 0 }}>Sync RSS Now</button>
+            </form>
+          </article>
+
           <article>
             <header>
               <strong>Broadcast a Note</strong>
@@ -282,7 +311,32 @@ export const Top = (props: {
             </form>
           </article>
 
-          <h3>Recent Broadcasts</h3>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+            <h3 style={{ margin: 0 }}>Recent Broadcasts</h3>
+            {props.messages.length > 0 && (
+              <form
+                action="/ap/delete-all"
+                method="post"
+                style={{ margin: 0 }}
+                onsubmit="return confirm('WARNING: Are you sure you want to delete ALL broadcasted notes from all followers? This operation is permanent and sends deletion activities for every single post.')"
+              >
+                <button
+                  type="submit"
+                  class="secondary outline"
+                  style={{
+                    padding: "4px 12px",
+                    fontSize: "0.8rem",
+                    width: "auto",
+                    margin: 0,
+                    borderColor: "#d9383a",
+                    color: "#d9383a",
+                  }}
+                >
+                  Delete All Notes
+                </button>
+              </form>
+            )}
+          </div>
           {props.messages.length === 0 ? (
             <p>
               <small>No posts broadcasted yet.</small>
